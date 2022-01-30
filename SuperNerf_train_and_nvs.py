@@ -33,7 +33,7 @@ cuda_id = torch.device("cuda:3")
 device_ids = [3,4,5]
 
 WarmUp_Nepochs = 0
-N_EPOCH = 400  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
+N_EPOCH = 500  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
 #EVAL_INTERVAL = 50  # render an image to visualise for every this interval.
 
 superSelectedpixels = 64
@@ -713,8 +713,10 @@ class HR_reconstruct(nn.Module):
 
         y = self.down1(y) #(N,D,32,32)
         y = y.permute(0,2,3,1) #(N,32,32,D)
+        y = y.contiguous()
         y = self.norm1(y) #(N,32,32,D)
         y = y.permute(0,3,1,2) #(N,D,32,32)
+        y = y.contiguous()
 
         #(N,D,32,32)
         for i in range(15):
@@ -723,8 +725,10 @@ class HR_reconstruct(nn.Module):
 
         y = self.down2(y) #(N,D,16,16)
         y = y.permute(0,2,3,1) #(N,16,16,D)
+        y = y.contiguous()
         y = self.norm2(y) #(N,16,16,D)
         y = y.permute(0,3,1,2) #(N,D,16,16)
+        y = y.contiguous()
 
         y = self.conv0(y) #(N,4*D,16,16)
 
@@ -868,15 +872,15 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
 
     #Color
     sample_rgb_t2 = ColorInp(sample_rgb_t1.contiguous(),sample_rgb_t3.contiguous()) # (1,3,N_sample,H,W)
-    sample_rgb_t2 = sample_rgb_t2.contiguous()
     sample_rgb_t2 = sample_rgb_t2.squeeze(0) # (3,N_sample,H,W)
     sample_rgb_t2 = sample_rgb_t2.permute(2,3,1,0) # (H, W, N_sample, 3)
+    sample_rgb_t2 = sample_rgb_t2.contiguous()
 
     #depth
     sample_depth_t2 = DensityInp(sample_depth_t1.contiguous(),sample_depth_t3.contiguous()) # (1,1,N_sample,H,W)
-    sample_depth_t2 = sample_depth_t2.contiguous()
     sample_depth_t2 = sample_depth_t2.squeeze(0) # (1,N_sample,H,W)
     sample_depth_t2 = sample_depth_t2.permute(2,3,1,0) # (H, W, N_sample, 1)
+    sample_depth_t2 = sample_depth_t2.contiguous()
 
     #rendering
     rgb_density_t2 = torch.cat([sample_rgb_t2,sample_depth_t2],dim=-1) # (H, W, N_sample, 4)
@@ -889,18 +893,18 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
     depth_map = torch.stack([depth_t1,depth_t2,depth_t3],dim=0) # (3,H,W)
 
     #SuperResol
-    rgb_t1 = rgb_t1.contiguous()
     rgb_t1 = rgb_t1.permute(2,0,1) # (3,H,W)
+    rgb_t1 = rgb_t1.contiguous()
     rgb_t1 = rgb_t1.unsqueeze(0) # (1,3,H,W)
     rgb_t1 = bottleNetImg(rgb_t1) # (1,64,H,W)
 
-    rgb_t2 = rgb_t2.contiguous()
     rgb_t2 = rgb_t2.permute(2,0,1) # (3,H,W)
+    rgb_t2 = rgb_t2.contiguous()
     rgb_t2 = rgb_t2.unsqueeze(0) # (1,3,H,W)
     rgb_t2 = bottleNetImg(rgb_t2) # (1,64,H,W)
 
-    rgb_t3 = rgb_t3.contiguous()
     rgb_t3 = rgb_t3.permute(2,0,1) # (3,H,W)
+    rgb_t3 = rgb_t3.contiguous()
     rgb_t3 = rgb_t3.unsqueeze(0) # (1,3,H,W)
     rgb_t3 = bottleNetImg(rgb_t3) # (1,64,H,W)
     
@@ -912,19 +916,19 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
 
     #reconst
     rgb_t1 = ReConstNet(rgb_out[:,0,:,:,:].contiguous()) # (1,3,H,W)
-    rgb_t1 = rgb_t1.contiguous()
     rgb_t1 = rgb_t1.squeeze(0) # (3,H,W)
     rgb_t1 = rgb_t1.permute(1,2,0) # (H,W,3)
+    rgb_t1 = rgb_t1.contiguous()
 
     rgb_t2 = ReConstNet(rgb_out[:,1,:,:,:].contiguous()) # (1,3,H,W)
-    rgb_t2 = rgb_t2.contiguous()
     rgb_t2 = rgb_t2.squeeze(0) # (3,H,W)
     rgb_t2 = rgb_t2.permute(1,2,0) # (H,W,3)
+    rgb_t2 = rgb_t2.contiguous()
 
     rgb_t3 = ReConstNet(rgb_out[:,2,:,:,:].contiguous()) # (1,3,H,W)
-    rgb_t3 = rgb_t3.contiguous()
     rgb_t3 = rgb_t3.squeeze(0) # (3,H,W)
     rgb_t3 = rgb_t3.permute(1,2,0) # (H,W,3)
+    rgb_t3 = rgb_t3.contiguous()
 
     #combine rgb
     rgb_rendered = torch.stack([rgb_t1,rgb_t2,rgb_t3],dim=0) # (3,H,W,3)
@@ -1126,8 +1130,8 @@ for epoch_i in tqdm(range(N_EPOCH), desc='Training'):
             eval_c2w = torch.eye(4, dtype=torch.float32)  # (4, 4)
             fxfy = focal_net()
             rendered_img, rendered_depth = Super_render_novel_view(int(epoch_i%(TSteps-2)),eval_c2w, H, W, fxfy, ray_params, nerf_model,time_pose_net,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet)
-            imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_img{epoch_i+1}_LFF.png"),(rendered_img*255).cpu().numpy().astype(np.uint8))
-            imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_depth{epoch_i+1}_LFF.png"),(rendered_depth*200).cpu().numpy().astype(np.uint8))
+            imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_img{epoch_i+1}_Super.png"),(rendered_img*255).cpu().numpy().astype(np.uint8))
+            imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_depth{epoch_i+1}_Super.png"),(rendered_depth*200).cpu().numpy().astype(np.uint8))
 
 
 print('Training Completed.')

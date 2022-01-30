@@ -204,6 +204,8 @@ class DWConvNeX(nn.Module):
 
         y = y.permute(0,2,3,1) #(N,H,W,D)
 
+        y = y.contiguous()
+
         y = self.norm0(y) #(N,H,W,D)
 
         y = self.act0(y) #(N,H,W,D)
@@ -211,6 +213,8 @@ class DWConvNeX(nn.Module):
         y = self.proj_layer(y) #(N,H,W,in_dim)
 
         y = y.permute(0,3,1,2) #(N,in_dim,H,W)
+
+        y = y.contiguous()
 
         out = y + x #(N,in_dim,H,W)
 
