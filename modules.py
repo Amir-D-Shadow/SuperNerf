@@ -191,7 +191,7 @@ class DWConvNeX(nn.Module):
 
         self.norm0 = nn.LayerNorm(D,eps=1e-6)
 
-        self.act0 = nn.LeakyReLU()
+        self.act0 = nn.ReLU()
 
         self.proj_layer = nn.Linear(in_features=D,out_features=in_dim)
 
@@ -229,8 +229,8 @@ class FeatTempInp(nn.Module):
                                      padding=1
                                      )
 
-        self.act1 = nn.LeakyReLU()
-        self.act2 = nn.LeakyReLU()
+        self.act1 = nn.ReLU()
+        self.act2 = nn.ReLU()
 
         self.blending_Tminus1 = nn.Conv3d(in_channels=D,
                                           out_channels=out_dim,

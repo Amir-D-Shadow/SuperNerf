@@ -29,14 +29,14 @@ model_weight_dir = f"{os.getcwd()}/model_weights/{scene_name}"
 
 load_supermodel = False
 
-cuda_id = torch.device("cuda:0")
-device_ids = [0,1,2,3]
+cuda_id = torch.device("cuda:3")
+device_ids = [3,4,5]
 
 WarmUp_Nepochs = 0
-N_EPOCH = 500  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
+N_EPOCH = 400  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
 #EVAL_INTERVAL = 50  # render an image to visualise for every this interval.
 
-superSelectedpixels = 76
+superSelectedpixels = 64
 
 #load image
 def load_imgs(image_dir):
@@ -534,7 +534,7 @@ print('Nerf Training finished.')
 from nerfmm.utils.pose_utils import create_spiral_poses
 
 import time
-
+"""
 # Render full images are time consuming, especially on colab so we render a smaller version instead.
 resize_ratio = 1
 with torch.no_grad():
@@ -578,7 +578,7 @@ with torch.no_grad():
     imageio.mimwrite(os.path.join(f"{os.getcwd()}/nvs_result", scene_name + '_depth_warmup.gif'), novel_depth_list, fps=30)
     print('GIF images saved.')
 
-    
+"""    
 
 #Super Nerf Train
 
@@ -680,7 +680,7 @@ class HR_reconstruct(nn.Module):
 
 
 
-        self.act0 = nn.LeakyReLU()
+        self.act0 = nn.ReLU()
 
         self.conv1 = DWConv(in_dim=D,
                             out_dim=D,
@@ -689,7 +689,7 @@ class HR_reconstruct(nn.Module):
                             padding=1
                             )
 
-        self.act1 = nn.LeakyReLU()
+        self.act1 = nn.ReLU()
         
         self.conv2 = DWConv(in_dim=D,
                             out_dim=3,
@@ -757,16 +757,16 @@ def Super_render_novel_view(T_momen,c2w, H, W, fxfy, ray_params, nerf_model,time
     c2w = c2w.to(cuda_id)  # (4, 4)
 
     # split an image to rows when the input image resolution is high
-    rays_dir_cam_split_rows = ray_dir_cam.split(10, dim=0)  # input 10 rows each time
+    rays_dir_cam_split_rows = ray_dir_cam.split(12, dim=0)  # input 12 rows each time
     rendered_img = []
     rendered_depth = []
     
     for rays_dir_rows in rays_dir_cam_split_rows:
 
         
-        render_result = model_render_image(time_pose_net,T_momen,c2w, rays_dir_rows, t_vals, ray_params,
-                                           H, W, fxfy, nerf_model,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet,
-                                           perturb_t=False, sigma_noise_std=0.0)
+        render_result = Super_model_render_image(time_pose_net,T_momen,c2w, rays_dir_rows, t_vals, ray_params,
+                                                 H, W, fxfy, nerf_model,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet,
+                                                 perturb_t=False, sigma_noise_std=0.0)
         
         rgb_rendered_rows = render_result['rgb'][1]  # (num_rows_eval_img, W, 3)
         depth_map = render_result['depth_map'][1]    # (num_rows_eval_img, W)
@@ -819,7 +819,7 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
     time_enc = time_enc.unsqueeze(2).expand(-1,-1,ray_params.N_SAMPLE,-1) #(H,W,N_sample,out_feat)
     
     # inference rgb and density using position and direction encoding.
-    rgb_density_t1 = nerf_model(pos_enc, dir_enc,time_enc)  # (H, W, N_sample, 4)
+    rgb_density_t1 = nerf_model(pos_enc.contiguous(), dir_enc.contiguous(),time_enc.contiguous())  # (H, W, N_sample, 4)
 
     render_result_t1 = volume_rendering(rgb_density_t1, t_vals_noisy, sigma_noise_std, rgb_act_fn=torch.sigmoid)
     rgb_t1 = render_result_t1['rgb']  # (H, W, 3)
@@ -838,7 +838,7 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
     time_enc = time_enc.unsqueeze(2).expand(-1,-1,ray_params.N_SAMPLE,-1) #(H,W,N_sample,out_feat)
 
     # inference rgb and density using position and direction encoding.
-    rgb_density_t3 = nerf_model(pos_enc, dir_enc,time_enc)  # (H, W, N_sample, 4)
+    rgb_density_t3 = nerf_model(pos_enc.contiguous(), dir_enc.contiguous(),time_enc.contiguous())  # (H, W, N_sample, 4)
 
     render_result_t3 = volume_rendering(rgb_density_t3, t_vals_noisy, sigma_noise_std, rgb_act_fn=torch.sigmoid)
     rgb_t3 = render_result_t3['rgb']  # (H, W, 3)
@@ -847,28 +847,34 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
 
     #t2
     sample_rgb_t1 = rgb_density_t1[:,:,:,:3] # (H, W, N_sample, 3)
+    sample_rgb_t1 = sample_rgb_t1.contiguous()
     sample_rgb_t1 = sample_rgb_t1.permute(3,2,0,1) # (3,N_sample,H,W)
     sample_rgb_t1 = sample_rgb_t1.unsqueeze(0) # (1,3,N_sample,H,W)
     
     sample_depth_t1 = rgb_density_t1[:,:,:,3:] # (H, W, N_sample, 1)
+    sample_depth_t1 = sample_depth_t1.contiguous()
     sample_depth_t1 = sample_depth_t1.permute(3,2,0,1) # (1,N_sample,H,W)
     sample_depth_t1 = sample_depth_t1.unsqueeze(0) # (1,1,N_sample,H,W)
 
     sample_rgb_t3 = rgb_density_t3[:,:,:,:3] # (H, W, N_sample, 3)
+    sample_rgb_t3 = sample_rgb_t3.contiguous()
     sample_rgb_t3 = sample_rgb_t3.permute(3,2,0,1) # (3,N_sample,H,W)
     sample_rgb_t3 = sample_rgb_t3.unsqueeze(0) # (1,3,N_sample,H,W)
     
     sample_depth_t3 = rgb_density_t3[:,:,:,3:] # (H, W, N_sample, 1)
+    sample_depth_t3 = sample_depth_t3.contiguous()
     sample_depth_t3 = sample_depth_t3.permute(3,2,0,1) # (1,N_sample,H,W)
     sample_depth_t3 = sample_depth_t3.unsqueeze(0) # (1,1,N_sample,H,W)
 
     #Color
-    sample_rgb_t2 = ColorInp(sample_rgb_t1,sample_rgb_t3) # (1,3,N_sample,H,W)
+    sample_rgb_t2 = ColorInp(sample_rgb_t1.contiguous(),sample_rgb_t3.contiguous()) # (1,3,N_sample,H,W)
+    sample_rgb_t2 = sample_rgb_t2.contiguous()
     sample_rgb_t2 = sample_rgb_t2.squeeze(0) # (3,N_sample,H,W)
     sample_rgb_t2 = sample_rgb_t2.permute(2,3,1,0) # (H, W, N_sample, 3)
 
     #depth
-    sample_depth_t2 = DensityInp(sample_depth_t1,sample_depth_t3) # (1,1,N_sample,H,W)
+    sample_depth_t2 = DensityInp(sample_depth_t1.contiguous(),sample_depth_t3.contiguous()) # (1,1,N_sample,H,W)
+    sample_depth_t2 = sample_depth_t2.contiguous()
     sample_depth_t2 = sample_depth_t2.squeeze(0) # (1,N_sample,H,W)
     sample_depth_t2 = sample_depth_t2.permute(2,3,1,0) # (H, W, N_sample, 1)
 
@@ -883,14 +889,17 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
     depth_map = torch.stack([depth_t1,depth_t2,depth_t3],dim=0) # (3,H,W)
 
     #SuperResol
+    rgb_t1 = rgb_t1.contiguous()
     rgb_t1 = rgb_t1.permute(2,0,1) # (3,H,W)
     rgb_t1 = rgb_t1.unsqueeze(0) # (1,3,H,W)
     rgb_t1 = bottleNetImg(rgb_t1) # (1,64,H,W)
 
+    rgb_t2 = rgb_t2.contiguous()
     rgb_t2 = rgb_t2.permute(2,0,1) # (3,H,W)
     rgb_t2 = rgb_t2.unsqueeze(0) # (1,3,H,W)
     rgb_t2 = bottleNetImg(rgb_t2) # (1,64,H,W)
 
+    rgb_t3 = rgb_t3.contiguous()
     rgb_t3 = rgb_t3.permute(2,0,1) # (3,H,W)
     rgb_t3 = rgb_t3.unsqueeze(0) # (1,3,H,W)
     rgb_t3 = bottleNetImg(rgb_t3) # (1,64,H,W)
@@ -899,18 +908,21 @@ def Super_model_render_image(time_pose_net,T_momen,c2w, rays_cam, t_vals, ray_pa
     rgb_3combined_for = torch.stack([rgb_t1,rgb_t2,rgb_t3],dim=1)  # (1,3,64,H,W)
     rgb_3combined_rev = torch.stack([rgb_t3,rgb_t2,rgb_t1],dim=1)  # (1,3,64,H,W)
     
-    rgb_out = BiLSTM(rgb_3combined_for,rgb_3combined_rev) # (1,3,128,H,W)
+    rgb_out = BiLSTM(rgb_3combined_for.contiguous(),rgb_3combined_rev.contiguous()) # (1,3,128,H,W)
 
     #reconst
-    rgb_t1 = ReConstNet(rgb_out[:,0,:,:,:]) # (1,3,H,W)
+    rgb_t1 = ReConstNet(rgb_out[:,0,:,:,:].contiguous()) # (1,3,H,W)
+    rgb_t1 = rgb_t1.contiguous()
     rgb_t1 = rgb_t1.squeeze(0) # (3,H,W)
     rgb_t1 = rgb_t1.permute(1,2,0) # (H,W,3)
 
-    rgb_t2 = ReConstNet(rgb_out[:,1,:,:,:]) # (1,3,H,W)
+    rgb_t2 = ReConstNet(rgb_out[:,1,:,:,:].contiguous()) # (1,3,H,W)
+    rgb_t2 = rgb_t2.contiguous()
     rgb_t2 = rgb_t2.squeeze(0) # (3,H,W)
     rgb_t2 = rgb_t2.permute(1,2,0) # (H,W,3)
 
-    rgb_t3 = ReConstNet(rgb_out[:,2,:,:,:]) # (1,3,H,W)
+    rgb_t3 = ReConstNet(rgb_out[:,2,:,:,:].contiguous()) # (1,3,H,W)
+    rgb_t3 = rgb_t3.contiguous()
     rgb_t3 = rgb_t3.squeeze(0) # (3,H,W)
     rgb_t3 = rgb_t3.permute(1,2,0) # (H,W,3)
 
@@ -931,7 +943,11 @@ def Super_train_one_epoch(images_data, H, W, ray_params, opt_nerf, opt_focal,opt
     """
     images_data: {0:(N,H,W,C),1:(N,H,W,C),2:(N,H,W,C),...}   dictionary that stores images for each time step with N camera pose each
     """
-
+    DensityInp.train()
+    ColorInp.train()
+    bottleNetImg.train()
+    BiLSTM.train()
+    ReConstNet.train()
     nerf_model.train()
     focal_net.train()
     pose_param_net.train()
@@ -1065,6 +1081,7 @@ scheduler_BiLSTM = MultiStepLR(opt_BiLSTM, milestones=list(range(0, 10000, 100))
 scheduler_HR = MultiStepLR(opt_HR, milestones=list(range(0, 10000, 100)), gamma=0.9)
 
 
+
 #Train SuperNerf
 print('Start Training Super Nerf...')
 for epoch_i in tqdm(range(N_EPOCH), desc='Training'):
@@ -1108,7 +1125,7 @@ for epoch_i in tqdm(range(N_EPOCH), desc='Training'):
 
             eval_c2w = torch.eye(4, dtype=torch.float32)  # (4, 4)
             fxfy = focal_net()
-            rendered_img, rendered_depth = render_novel_view((int(epoch_i%(TSteps-2)),eval_c2w, H, W, fxfy, ray_params, nerf_model,time_pose_net,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet))
+            rendered_img, rendered_depth = Super_render_novel_view(int(epoch_i%(TSteps-2)),eval_c2w, H, W, fxfy, ray_params, nerf_model,time_pose_net,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet)
             imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_img{epoch_i+1}_LFF.png"),(rendered_img*255).cpu().numpy().astype(np.uint8))
             imageio.imwrite(os.path.join(f"{os.getcwd()}/nvs_midImg/{scene_name}", scene_name + f"_depth{epoch_i+1}_LFF.png"),(rendered_depth*200).cpu().numpy().astype(np.uint8))
 
@@ -1147,7 +1164,7 @@ with torch.no_grad():
     #render images
     for i in tqdm(range(spiral_c2ws.shape[0]), desc='novel view rendering'):
         
-        novel_img, novel_depth = render_novel_view(t[i],spiral_c2ws[i], novel_H, novel_W, novel_fxfy,ray_params, nerf_model,time_pose_net,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet)
+        novel_img, novel_depth = Super_render_novel_view(t[i],spiral_c2ws[i], novel_H, novel_W, novel_fxfy,ray_params, nerf_model,time_pose_net,DensityInp,ColorInp,bottleNetImg,BiLSTM,ReConstNet)
         
         novel_img_list.append(novel_img)
         novel_depth_list.append(novel_depth)

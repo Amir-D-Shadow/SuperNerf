@@ -20,16 +20,16 @@ from nerfmm.utils.lie_group_helper import convert3x4_4x4
 from PIL import Image as PILImage
 
 #config
-load_model = True
-scene_name = "room1"
+load_model = False
+scene_name = "room2"
 image_dir = f"{os.getcwd()}/data/{scene_name}"
 model_weight_dir = f"{os.getcwd()}/model_weights/{scene_name}"
 
 
-cuda_id = torch.device("cuda:0")
-device_ids = [0,1,2,3]
+cuda_id = torch.device("cuda:6")
+device_ids = [6,7,8,9]
 
-N_EPOCH = 300  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
+N_EPOCH = 100  # set to 1000 to get slightly better results. we use 10K epoch in our paper.
 #EVAL_INTERVAL = 50  # render an image to visualise for every this interval.
 
 #load image
